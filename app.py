@@ -5,7 +5,6 @@ import pandas as pd
 st.set_page_config(page_title="Asset Tracker", layout="wide")
 st.title("Asset Tracker - Daily Performance")
 
-# Define tickers
 tickers = {
     "FTSE 100": "^FTSE",
     "S&P 500": "^GSPC",
@@ -14,10 +13,8 @@ tickers = {
     "GBP/USD": "GBPUSD=X"
 }
 
-# Download last 6 months of data
 data = yf.download(list(tickers.values()), period="6mo", interval="1d", group_by='ticker', auto_adjust=True)
 
-# Prepare a clean DataFrame
 clean_data = pd.DataFrame()
 for name, ticker in tickers.items():
     ticker_data = data[ticker]
@@ -31,12 +28,20 @@ for name, ticker in tickers.items():
 
 clean_data.dropna(inplace=True)
 
-# Normalize to 100 at start
+# Normalize for performance chart
 normalized = clean_data / clean_data.iloc[0] * 100
-
-# Display the normalized chart
 st.line_chart(normalized)
 
-# Display the last available prices in a table
+# Latest prices
 st.subheader("Latest Prices")
 st.dataframe(clean_data.tail(1).T.rename(columns={clean_data.tail(1).columns[0]: "Price"}))
+
+# Daily % change
+daily_change = clean_data.pct_change() * 100
+daily_change = daily_change.round(2)
+st.subheader("Daily % Change")
+st.dataframe(daily_change.tail(1).T.rename(columns={daily_change.columns[0]: "Daily Change (%)"}))
+
+# Last data date
+last_date = clean_data.index[-1].strftime("%Y-%m-%d")
+st.write(f"Last data update: {last_date}")
