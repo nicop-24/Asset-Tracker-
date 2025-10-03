@@ -49,7 +49,7 @@ st.subheader("📈 Latest Prices and Daily Change")
 st.dataframe(prices)
 
 # ================================
-# Part 2: Charts (Daily closes up to yesterday)
+# Part 2: Charts (Normalized to 100)
 # ================================
 # Only chart up to yesterday's close
 if today in daily.index:
@@ -57,11 +57,14 @@ if today in daily.index:
 else:
     daily_chart = daily
 
-st.subheader("📊 Equity Indices (6 months, daily closes up to yesterday)")
-st.line_chart(daily_chart[["FTSE 100", "S&P 500", "NASDAQ"]])
+# Normalize all series to start at 100
+normalized = (daily_chart / daily_chart.iloc[0]) * 100
 
-st.subheader("💱 Currencies (6 months, daily closes up to yesterday)")
-st.line_chart(daily_chart[["EUR/USD", "GBP/USD"]])
+st.subheader("📊 Equity Indices (6 months, normalized to 100)")
+st.line_chart(normalized[["FTSE 100", "S&P 500", "NASDAQ"]])
+
+st.subheader("💱 Currencies (6 months, normalized to 100)")
+st.line_chart(normalized[["EUR/USD", "GBP/USD"]])
 
 # ================================
 # Footer with UTC + London time
