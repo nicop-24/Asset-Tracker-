@@ -19,7 +19,7 @@ data = yf.download(
     list(tickers.values()), 
     period="5d", 
     interval="15m"
-)['Adj Close']
+)["Close"]
 
 # Rename columns with human-readable labels
 data = data.rename(columns={v: k for k, v in tickers.items()})
@@ -30,11 +30,11 @@ latest.columns = ["Latest Price"]
 st.subheader("Latest Prices (15m delayed)")
 st.dataframe(latest)
 
-# Calculate % change over last close
+# Calculate % change vs previous 15m bar
 if len(data) > 1:
     prev = data.iloc[-2]
     change = ((latest["Latest Price"] - prev) / prev * 100).round(2)
-    changes = pd.DataFrame({"Daily % Change": change})
+    changes = pd.DataFrame({"% Change (last 15m)": change})
     st.subheader("Intraday % Change (vs previous 15m)")
     st.dataframe(changes)
 
