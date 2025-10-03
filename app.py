@@ -16,33 +16,9 @@ tickers = {
 st.title("📊 Asset Tracker Dashboard")
 
 # ================================
-# Part 1: Latest Prices (Intraday, 15m)
+# Part 1: Latest Prices (today vs yesterday)
 # ================================
-intraday = yf.download(
-    list(tickers.values()),
-    period="5d",
-    interval="15m"
-)["Close"]
-
-intraday = intraday.rename(columns={v: k for k, v in tickers.items()})
-
-# Latest prices
-latest = intraday.tail(1).T
-latest.columns = ["Latest Price"]
-st.subheader("📈 Latest Prices (15m delayed)")
-st.dataframe(latest)
-
-# % change vs previous 15m
-if len(intraday) > 1:
-    prev = intraday.iloc[-2]
-    change = ((latest["Latest Price"] - prev) / prev * 100).round(2)
-    changes = pd.DataFrame({"% Change (last 15m)": change})
-    st.subheader("🔄 Intraday % Change")
-    st.dataframe(changes)
-
-# ================================
-# Part 2: Charts (Daily closes, 6 months)
-# ================================
+# Get daily closes (6 months, for yesterday and today if available)
 daily = yf.download(
     list(tickers.values()),
     period="6mo",
@@ -51,16 +27,41 @@ daily = yf.download(
 
 daily = daily.rename(columns={v: k for k, v in tickers.items()})
 
-# Only use up to yesterday's close
+# Latest close we have (today or yesterday if today not yet reported)
+latest_daily = daily.iloc[-1]
+yesterday_daily = daily.iloc[-2]
+
+# If today's date is in the index but it's incomplete (trading ongoing),
+# then use yesterday's close as "last available"
 today = datetime.date.today()
 if today in daily.index:
-    daily = daily.iloc[:-1]
+    latest_daily = daily.iloc[-2]  # keep yesterday's value until full day is available
+    yesterday_daily = daily.iloc[-3]
+
+# Build table of current vs yesterday
+prices = pd.DataFrame({
+    "Latest Price": latest_daily,
+    "Prev Close": yesterday_daily
+})
+prices["% Change vs Prev Close"] = ((prices["Latest Price"] - prices["Prev Close"]) / prices["Prev Close"] * 100).round(2)
+
+st.subheader("📈 Latest Prices and Daily Change")
+st.dataframe(prices)
+
+# ================================
+# Part 2: Charts (Daily closes up to yesterday)
+# ================================
+# Only chart up to yesterday's close
+if today in daily.index:
+    daily_chart = daily.iloc[:-1]
+else:
+    daily_chart = daily
 
 st.subheader("📊 Equity Indices (6 months, daily closes up to yesterday)")
-st.line_chart(daily[["FTSE 100", "S&P 500", "NASDAQ"]])
+st.line_chart(daily_chart[["FTSE 100", "S&P 500", "NASDAQ"]])
 
 st.subheader("💱 Currencies (6 months, daily closes up to yesterday)")
-st.line_chart(daily[["EUR/USD", "GBP/USD"]])
+st.line_chart(daily_chart[["EUR/USD", "GBP/USD"]])
 
 # ================================
 # Footer with UTC + London time
