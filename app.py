@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 import datetime
 import pytz
+import altair as alt
 
 # Assets to track
 tickers = {
@@ -18,7 +19,6 @@ st.title("📊 Asset Tracker Dashboard")
 # ================================
 # Part 1: Latest Prices (today vs yesterday)
 # ================================
-# Get daily closes (6 months, for yesterday and today if available)
 daily = yf.download(
     list(tickers.values()),
     period="6mo",
@@ -27,18 +27,15 @@ daily = yf.download(
 
 daily = daily.rename(columns={v: k for k, v in tickers.items()})
 
-# Latest close we have (today or yesterday if today not yet reported)
+# Handle latest vs yesterday (adjust if today incomplete)
 latest_daily = daily.iloc[-1]
 yesterday_daily = daily.iloc[-2]
 
-# If today's date is in the index but it's incomplete (trading ongoing),
-# then use yesterday's close as "last available"
 today = datetime.date.today()
 if today in daily.index:
-    latest_daily = daily.iloc[-2]  # keep yesterday's value until full day is available
+    latest_daily = daily.iloc[-2]
     yesterday_daily = daily.iloc[-3]
 
-# Build table of current vs yesterday
 prices = pd.DataFrame({
     "Latest Price": latest_daily,
     "Prev Close": yesterday_daily
@@ -49,22 +46,43 @@ st.subheader("📈 Latest Prices and Daily Change")
 st.dataframe(prices)
 
 # ================================
-# Part 2: Charts (Normalized to 100)
+# Part 2: Charts (Normalized & Zoomed)
 # ================================
-# Only chart up to yesterday's close
 if today in daily.index:
     daily_chart = daily.iloc[:-1]
 else:
     daily_chart = daily
 
-# Normalize all series to start at 100
 normalized = (daily_chart / daily_chart.iloc[0]) * 100
+norm_reset = normalized.reset_index().melt("Date", var_name="Asset", value_name="Value")
 
-st.subheader("📊 Equity Indices (6 months, normalized to 100)")
-st.line_chart(normalized[["FTSE 100", "S&P 500", "NASDAQ"]])
+st.subheader("📊 Equity Indices (normalized to 100, zoomed 80–120)")
+chart_equities = (
+    alt.Chart(norm_reset[norm_reset["Asset"].isin(["FTSE 100", "S&P 500", "NASDAQ"])])
+    .mark_line()
+    .encode(
+        x="Date:T",
+        y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, 120])),
+        color="Asset:N",
+        tooltip=["Date:T", "Asset:N", "Value:Q"]
+    )
+    .properties(width=700, height=400)
+)
+st.altair_chart(chart_equities, use_container_width=True)
 
-st.subheader("💱 Currencies (6 months, normalized to 100)")
-st.line_chart(normalized[["EUR/USD", "GBP/USD"]])
+st.subheader("💱 Currencies (normalized to 100, zoomed 80–120)")
+chart_fx = (
+    alt.Chart(norm_reset[norm_reset["Asset"].isin(["EUR/USD", "GBP/USD"])])
+    .mark_line()
+    .encode(
+        x="Date:T",
+        y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, 120])),
+        color="Asset:N",
+        tooltip=["Date:T", "Asset:N", "Value:Q"]
+    )
+    .properties(width=700, height=400)
+)
+st.altair_chart(chart_fx, use_container_width=True)
 
 # ================================
 # Footer with UTC + London time
