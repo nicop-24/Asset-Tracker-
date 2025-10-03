@@ -12,35 +12,51 @@ tickers = {
     "GBP/USD": "GBPUSD=X"
 }
 
-st.title("📈 Asset Tracker (Intraday - 15 min)")
+st.title("📊 Asset Tracker Dashboard")
 
-# Download last 5 days of 15-minute data
-data = yf.download(
-    list(tickers.values()), 
-    period="5d", 
+# ================================
+# Part 1: Latest Prices (Intraday, 15m)
+# ================================
+intraday = yf.download(
+    list(tickers.values()),
+    period="5d",
     interval="15m"
 )["Close"]
 
-# Rename columns with human-readable labels
-data = data.rename(columns={v: k for k, v in tickers.items()})
+intraday = intraday.rename(columns={v: k for k, v in tickers.items()})
 
-# Show the latest prices
-latest = data.tail(1).T
+# Latest prices
+latest = intraday.tail(1).T
 latest.columns = ["Latest Price"]
-st.subheader("Latest Prices (15m delayed)")
+st.subheader("📈 Latest Prices (15m delayed)")
 st.dataframe(latest)
 
-# Calculate % change vs previous 15m bar
-if len(data) > 1:
-    prev = data.iloc[-2]
+# % change vs previous 15m
+if len(intraday) > 1:
+    prev = intraday.iloc[-2]
     change = ((latest["Latest Price"] - prev) / prev * 100).round(2)
     changes = pd.DataFrame({"% Change (last 15m)": change})
-    st.subheader("Intraday % Change (vs previous 15m)")
+    st.subheader("🔄 Intraday % Change")
     st.dataframe(changes)
 
-# Plot line chart of intraday performance
-st.subheader("Intraday Performance (last 5 days, 15m)")
-st.line_chart(data)
+# ================================
+# Part 2: Charts (Daily closes, 6 months)
+# ================================
+daily = yf.download(
+    list(tickers.values()),
+    period="6mo",
+    interval="1d"
+)["Adj Close"]
 
-# Show last update timestamp
+daily = daily.rename(columns={v: k for k, v in tickers.items()})
+
+st.subheader("📊 Equity Indices (6 months, daily closes)")
+st.line_chart(daily[["FTSE 100", "S&P 500", "NASDAQ"]])
+
+st.subheader("💱 Currencies (6 months, daily closes)")
+st.line_chart(daily[["EUR/USD", "GBP/USD"]])
+
+# ================================
+# Footer
+# ================================
 st.caption(f"Data last updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
