@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import streamlit as st
 import datetime
+import pytz
 
 # Assets to track
 tickers = {
@@ -50,13 +51,21 @@ daily = yf.download(
 
 daily = daily.rename(columns={v: k for k, v in tickers.items()})
 
-st.subheader("📊 Equity Indices (6 months, daily closes)")
+# Only use up to yesterday's close
+today = datetime.date.today()
+if today in daily.index:
+    daily = daily.iloc[:-1]
+
+st.subheader("📊 Equity Indices (6 months, daily closes up to yesterday)")
 st.line_chart(daily[["FTSE 100", "S&P 500", "NASDAQ"]])
 
-st.subheader("💱 Currencies (6 months, daily closes)")
+st.subheader("💱 Currencies (6 months, daily closes up to yesterday)")
 st.line_chart(daily[["EUR/USD", "GBP/USD"]])
 
 # ================================
-# Footer
+# Footer with UTC + London time
 # ================================
-st.caption(f"Data last updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+utc_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+london_time = datetime.datetime.now(pytz.timezone("Europe/London")).strftime('%Y-%m-%d %H:%M:%S')
+
+st.caption(f"Data last updated: {utc_time} (UTC) | {london_time} (London time)")
