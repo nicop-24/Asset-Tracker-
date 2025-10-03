@@ -46,7 +46,7 @@ daily = yf.download(
     list(tickers.values()),
     period="6mo",
     interval="1d"
-)["Adj Close"]
+)["Close"]
 
 daily = daily.rename(columns={v: k for k, v in tickers.items()})
 
