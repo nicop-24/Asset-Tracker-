@@ -1,33 +1,38 @@
-# Asset Tracker
+# Asset Tracker Dashboard
 
-Asset Tracker is a Python-based dashboard that tracks the daily performance of major financial indices and FX pairs. It allows users to visualize normalized performance over time and serves as a foundation for portfolio tracking and risk analysis projects.
+A lightweight, Streamlit-powered dashboard to monitor global markets.  
+The app fetches data from **Yahoo Finance** and shows both **daily price changes** and **historical trends** for selected indices and currencies.
 
-## Assets / Currencies Tracked
-- **FTSE 100** (UK large-cap index)
-- **S&P 500** (US large-cap index)
-- **NASDAQ** (US tech-heavy index)
-- **EUR/USD** (Euro vs US Dollar)
-- **GBP/USD** (British Pound vs US Dollar)
+---
 
-## Features
-- Fetches historical daily data for the last 6 months using `yfinance`.
-- Handles both multi-column indices (OHLCV) and single-column FX pairs.
-- Normalizes all assets to 100 at the start date for easy comparison.
-- Plots performance trends over time using `matplotlib`.
-- Designed to be extended for portfolio weights, cumulative returns, and risk metrics.
+##  Features
+- 📈 Live tracking of stock indices and FX pairs.
+- 🔄 Automatic update of latest available prices (with fallback to yesterday’s close if today is incomplete).
+- 📊 Visual charts of the past 6 months of data.
+- 🌍 Timezone support: shows last update in both **UTC** and **London time**.
+
+---
+
+##  Assets Tracked
+- **FTSE 100**  
+- **S&P 500**  
+- **NASDAQ**  
+- **EUR/USD**  
+- **GBP/USD**
+
+---
 
 ## Technologies Used
-- Python 3
-- [yfinance](https://pypi.org/project/yfinance/)
-- [pandas](https://pandas.pydata.org/)
-- [matplotlib](https://matplotlib.org/)
-- [Streamlit](https://streamlit.io/) (for future interactive dashboards)
+- [Python](https://www.python.org/)  
+- [Streamlit](https://streamlit.io/) – interactive dashboard  
+- [yfinance](https://pypi.org/project/yfinance/) – financial data  
+- [pandas](https://pandas.pydata.org/) – data manipulation  
+- [pytz](https://pypi.org/project/pytz/) – timezone handling  
 
-## Roadmap / Future Work
-- Add portfolio weighting and cumulative performance tracking.
-- Include risk metrics such as volatility and Sharpe ratio.
-- Deploy as an interactive Streamlit dashboard for live updates.
-- Extend to more indices, commodities, and currencies.
+---
 
-## License
-MIT License
+## 📜 License
+This project is licensed under the **MIT License**.  
+You are free to use, modify, and distribute this software, provided the copyright notice is included.
+
+---
