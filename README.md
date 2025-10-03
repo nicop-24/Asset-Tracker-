@@ -2,7 +2,7 @@
 
 Asset Tracker is a Python-based dashboard that tracks the daily performance of major financial indices and FX pairs. It allows users to visualize normalized performance over time and serves as a foundation for portfolio tracking and risk analysis projects.
 
-## Assets Tracked
+## Assets / Currencies Tracked
 - **FTSE 100** (UK large-cap index)
 - **S&P 500** (US large-cap index)
 - **NASDAQ** (US tech-heavy index)
