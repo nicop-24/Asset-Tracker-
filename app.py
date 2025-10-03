@@ -1,10 +1,9 @@
-import streamlit as st
 import yfinance as yf
 import pandas as pd
+import streamlit as st
+import datetime
 
-st.set_page_config(page_title="Asset Tracker", layout="wide")
-st.title("Asset Tracker - Daily Performance")
-
+# Assets to track
 tickers = {
     "FTSE 100": "^FTSE",
     "S&P 500": "^GSPC",
@@ -13,35 +12,35 @@ tickers = {
     "GBP/USD": "GBPUSD=X"
 }
 
-data = yf.download(list(tickers.values()), period="6mo", interval="1d", group_by='ticker', auto_adjust=True)
+st.title("📈 Asset Tracker (Intraday - 15 min)")
 
-clean_data = pd.DataFrame()
-for name, ticker in tickers.items():
-    ticker_data = data[ticker]
-    if isinstance(ticker_data, pd.DataFrame):
-        if 'Close' in ticker_data.columns:
-            clean_data[name] = ticker_data['Close']
-        else:
-            clean_data[name] = ticker_data.iloc[:, 0]
-    else:
-        clean_data[name] = ticker_data
+# Download last 5 days of 15-minute data
+data = yf.download(
+    list(tickers.values()), 
+    period="5d", 
+    interval="15m"
+)['Adj Close']
 
-clean_data.dropna(inplace=True)
+# Rename columns with human-readable labels
+data = data.rename(columns={v: k for k, v in tickers.items()})
 
-# Normalize for performance chart
-normalized = clean_data / clean_data.iloc[0] * 100
-st.line_chart(normalized)
+# Show the latest prices
+latest = data.tail(1).T
+latest.columns = ["Latest Price"]
+st.subheader("Latest Prices (15m delayed)")
+st.dataframe(latest)
 
-# Latest prices
-st.subheader("Latest Prices")
-st.dataframe(clean_data.tail(1).T.rename(columns={clean_data.tail(1).columns[0]: "Price"}))
+# Calculate % change over last close
+if len(data) > 1:
+    prev = data.iloc[-2]
+    change = ((latest["Latest Price"] - prev) / prev * 100).round(2)
+    changes = pd.DataFrame({"Daily % Change": change})
+    st.subheader("Intraday % Change (vs previous 15m)")
+    st.dataframe(changes)
 
-# Daily % change
-daily_change = clean_data.pct_change() * 100
-daily_change = daily_change.round(2)
-st.subheader("Daily % Change")
-st.dataframe(daily_change.tail(1).T.rename(columns={daily_change.columns[0]: "Daily Change (%)"}))
+# Plot line chart of intraday performance
+st.subheader("Intraday Performance (last 5 days, 15m)")
+st.line_chart(data)
 
-# Last data date
-last_date = clean_data.index[-1].strftime("%Y-%m-%d")
-st.write(f"Last data update: {last_date}")
+# Show last update timestamp
+st.caption(f"Data last updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
