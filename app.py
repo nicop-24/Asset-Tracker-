@@ -21,22 +21,29 @@ st.title("📊 Asset Tracker Dashboard")
 # ================================
 # Part 1: Latest Prices (today vs yesterday)
 # ================================
+# Download last 6 months of daily data
 daily = yf.download(
     list(tickers.values()),
     period="6mo",
     interval="1d"
 )["Close"]
 
-# Rename columns for readability
+# Rename columns
 daily = daily.rename(columns={v: k for k, v in tickers.items()})
+
+# Forward-fill any missing values so all assets appear
+daily = daily.ffill()
+
+# Identify today's date
+today = datetime.date.today()
 
 # Handle incomplete sessions
 latest_daily = daily.iloc[-1]
 yesterday_daily = daily.iloc[-2]
 
-today = datetime.date.today()
 if today in daily.index:
-    latest_daily = daily.iloc[-2]  # use yesterday’s value if today is partial
+    # If today’s partial data is in the index, use yesterday instead
+    latest_daily = daily.iloc[-2]
     yesterday_daily = daily.iloc[-3]
 
 # Build comparison table
@@ -50,33 +57,35 @@ st.subheader("📈 Latest Prices and Daily Change")
 st.dataframe(prices)
 
 # ================================
-# Part 2: Charts (Normalized, Robust)
+# Part 2: Charts (Normalized, Always Show All)
 # ================================
-# Use only full-day closes
+# Exclude incomplete last day if necessary
 if today in daily.index:
     daily_chart = daily.iloc[:-1]
 else:
     daily_chart = daily
 
-# Drop tickers with no data
-daily_chart = daily_chart.dropna(axis=1, how="all")
+# Forward-fill again for safety
+daily_chart = daily_chart.ffill()
 
 # Normalize all series to start at 100
 normalized = (daily_chart / daily_chart.iloc[0]) * 100
 
-# Reshape for Altair
+# Ensure all tickers exist
+for name in tickers.keys():
+    if name not in normalized.columns:
+        normalized[name] = None
+
+# Melt for Altair
 normalized_reset = normalized.reset_index().melt("Date", var_name="Asset", value_name="Value")
 
-# Warn if some tickers missing
-missing = set(tickers.keys()) - set(normalized.columns)
-if missing:
-    st.warning(f"⚠️ No data available for: {', '.join(missing)}")
-
-# Define dynamic y-axis range
+# Dynamic Y-axis zoom
 y_max = normalized_reset["Value"].max()
-y_upper = int(((y_max // 10) + 1) * 10)  # round up to nearest 10
+y_upper = int(((y_max // 10) + 1) * 10)
 
-# Equity indices chart
+# ================================
+# Equity Chart
+# ================================
 st.subheader("📊 Equity Indices (6 months, normalized to 100)")
 equity_assets = ["FTSE 100", "S&P 500", "NASDAQ"]
 
@@ -86,12 +95,18 @@ equity_chart = alt.Chart(
     x="Date:T",
     y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, y_upper])),
     color="Asset:N",
-    tooltip=["Date:T", "Asset:N", alt.Tooltip("Value:Q", format=".2f")]
+    tooltip=[
+        "Date:T",
+        "Asset:N",
+        alt.Tooltip("Value:Q", title="Rebased Value", format=".2f")
+    ]
 ).properties(width=700, height=400)
 
 st.altair_chart(equity_chart, use_container_width=True)
 
-# FX chart
+# ================================
+# FX Chart
+# ================================
 st.subheader("💱 Currencies (6 months, normalized to 100)")
 fx_assets = ["EUR/USD", "GBP/USD"]
 
@@ -101,7 +116,11 @@ fx_chart = alt.Chart(
     x="Date:T",
     y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, y_upper])),
     color="Asset:N",
-    tooltip=["Date:T", "Asset:N", alt.Tooltip("Value:Q", format=".2f")]
+    tooltip=[
+        "Date:T",
+        "Asset:N",
+        alt.Tooltip("Value:Q", title="Rebased Value", format=".2f")
+    ]
 ).properties(width=700, height=400)
 
 st.altair_chart(fx_chart, use_container_width=True)
