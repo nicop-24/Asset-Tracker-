@@ -32,14 +32,16 @@ def fetch_data():
         progress=False,
     )["Close"]
     data = data.rename(columns={v: k for k, v in tickers.items()})
+    # fill missing data forward so charts always show last known value
     data = data.fillna(method="ffill")
     return data
 
 daily = fetch_data()
 
-# Ensure we only use the last complete trading day
+# Use last available (non-NaN) date
 latest_date = daily.dropna().index.max()
 latest_data = daily.loc[latest_date]
+
 # previous available trading day
 prev_date = daily.loc[:latest_date].iloc[-2].name
 prev_data = daily.loc[prev_date]
@@ -60,17 +62,14 @@ st.dataframe(prices, hide_index=True, use_container_width=True)
 # ============================================================
 # CHARTS
 # ============================================================
-# Only up to last complete trading day
-chart_data = daily.loc[:latest_date]
-
 # Normalize (base 100)
-normalized = (chart_data / chart_data.iloc[0]) * 100
+normalized = (daily / daily.iloc[0]) * 100
 normalized = normalized.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Value")
 
-# Compute dynamic y-axis
+# Dynamic y-axis (zoomed)
 y_min = 80
 y_max = normalized["Value"].max()
-y_upper = y_max + 20  # headroom above the highest value
+y_upper = y_max + 20
 
 # ============================================================
 # EQUITY CHART
