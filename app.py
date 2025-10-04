@@ -42,16 +42,16 @@ def get_data():
         except Exception as e:
             st.warning(f"⚠️ Could not download {name}: {e}")
 
+    # Ensure all columns exist
+    for name in all_tickers.keys():
+        if name not in daily_data.columns:
+            daily_data[name] = pd.NA
+        if name not in intraday_data.columns:
+            intraday_data[name] = pd.NA
+
     return daily_data.ffill(), intraday_data.ffill()
 
 daily, intraday = get_data()
-
-# Ensure all columns exist
-for name in all_tickers.keys():
-    if name not in daily.columns:
-        daily[name] = None
-    if name not in intraday.columns:
-        intraday[name] = None
 
 # ================================
 # Latest prices table
@@ -72,26 +72,37 @@ st.dataframe(prices)
 # ================================
 # Equity Chart (FTSE, S&P 500, NASDAQ)
 # ================================
-equity_data = daily[list(equity_tickers.keys())].ffill()
+equity_data = daily[list(equity_tickers.keys())].copy()
+equity_data = equity_data.ffill()
+
+# Normalize to base 100
 normalized = (equity_data / equity_data.iloc[0]) * 100
 
 # Reset index and ensure "Date" exists
 normalized_reset = normalized.reset_index()
 normalized_reset.rename(columns={normalized_reset.columns[0]: "Date"}, inplace=True)
 
-if "Date" not in normalized_reset.columns:
-    st.error("Date column missing in normalized equity data.")
-else:
+# Melt safely
+if "Date" in normalized_reset.columns:
     normalized_reset = pd.melt(
         normalized_reset,
         id_vars=["Date"],
         var_name="Asset",
         value_name="Value"
     )
+else:
+    st.error("Date column missing in normalized equity data.")
+    normalized_reset = pd.DataFrame(columns=["Date", "Asset", "Value"])
+
+# Compute % change since start for labels
+start_values = normalized.iloc[0]
+latest_values = normalized.iloc[-1]
+percent_change_labels = {asset: ((latest_values[asset] - start_values[asset])/start_values[asset]*100).round(2)
+                         for asset in equity_tickers.keys()}
 
 # Y-axis: zoom 80 to max+20
 y_lower = 80
-y_upper = int(normalized_reset["Value"].max().max() + 20)
+y_upper = int(normalized_reset["Value"].max().max() + 20) if not normalized_reset.empty else 150
 
 st.subheader("📊 Equity Indices (6 months, normalized to 100)")
 equity_chart = alt.Chart(normalized_reset).mark_line().encode(
@@ -105,31 +116,51 @@ equity_chart = alt.Chart(normalized_reset).mark_line().encode(
     ]
 ).properties(width=700, height=400)
 
-st.altair_chart(equity_chart, use_container_width=True)
+# Add labels for latest % change since start
+labels_data = pd.DataFrame({
+    "Asset": list(percent_change_labels.keys()),
+    "Value": [latest_values[a] for a in percent_change_labels.keys()],
+    "Label": [f"{v:+.2f}%" for v in percent_change_labels.values()]
+})
+label_chart = alt.Chart(labels_data).mark_text(
+    align='left',
+    dx=5,
+    dy=-5,
+    fontWeight='bold'
+).encode(
+    x=alt.value(normalized_reset["Date"].max()),  # place at the far right
+    y="Value:Q",
+    text="Label:N",
+    color="Asset:N"
+)
+
+st.altair_chart(equity_chart + label_chart, use_container_width=True)
 
 # ================================
 # FX Chart
 # ================================
-fx_data = daily[list(fx_tickers.keys())].ffill()
-fx_normalized = (fx_data / fx_data.iloc[0]) * 100
+fx_data = daily[list(fx_tickers.keys())].copy()
+fx_data = fx_data.ffill()
 
+fx_normalized = (fx_data / fx_data.iloc[0]) * 100
 fx_reset = fx_normalized.reset_index()
 fx_reset.rename(columns={fx_reset.columns[0]: "Date"}, inplace=True)
 
-if "Date" not in fx_reset.columns:
-    st.error("Date column missing in FX data.")
-else:
+if "Date" in fx_reset.columns:
     fx_reset = pd.melt(
         fx_reset,
         id_vars=["Date"],
         var_name="Asset",
         value_name="Value"
     )
+else:
+    st.error("Date column missing in FX data.")
+    fx_reset = pd.DataFrame(columns=["Date", "Asset", "Value"])
 
 st.subheader("💱 Currencies (6 months, normalized to 100)")
 fx_chart = alt.Chart(fx_reset).mark_line().encode(
     x="Date:T",
-    y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, int(fx_reset["Value"].max().max()+20)])),
+    y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, int(fx_reset["Value"].max().max()+20) if not fx_reset.empty else 120])),
     color="Asset:N",
     tooltip=[
         "Date:T",
@@ -147,4 +178,3 @@ utc_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 london_time = datetime.datetime.now(pytz.timezone("Europe/London")).strftime('%Y-%m-%d %H:%M:%S')
 
 st.caption(f"Data last updated: {utc_time} (UTC) | {london_time} (London time)")
-
