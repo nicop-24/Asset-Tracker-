@@ -8,7 +8,7 @@ import altair as alt
 st.title("📊 Asset Tracker Dashboard")
 
 # ================================
-# Assets
+# Tickers
 # ================================
 equity_tickers = {
     "FTSE 100": "^FTSE",
@@ -24,30 +24,37 @@ fx_tickers = {
 all_tickers = {**equity_tickers, **fx_tickers}
 
 # ================================
-# Download 6 months of daily + intraday
+# Download data
 # ================================
 @st.cache_data(ttl=900)  # cache 15 minutes
 def get_data():
-    data_daily = pd.DataFrame()
-    data_intraday = pd.DataFrame()
+    daily_data = pd.DataFrame()
+    intraday_data = pd.DataFrame()
     for name, symbol in all_tickers.items():
         try:
-            # Daily closes for chart & table
+            # Daily 6mo
             df_daily = yf.download(symbol, period="6mo", interval="1d")[["Close"]].rename(columns={"Close": name})
-            data_daily = pd.concat([data_daily, df_daily], axis=1)
+            daily_data = pd.concat([daily_data, df_daily], axis=1)
 
-            # Intraday 15m for latest values
+            # Intraday 7d, 15min
             df_intraday = yf.download(symbol, period="7d", interval="15m")[["Close"]].rename(columns={"Close": name})
-            data_intraday = pd.concat([data_intraday, df_intraday], axis=1)
+            intraday_data = pd.concat([intraday_data, df_intraday], axis=1)
         except Exception as e:
             st.warning(f"⚠️ Could not download {name}: {e}")
 
-    return data_daily.ffill(), data_intraday.ffill()
+    return daily_data.ffill(), intraday_data.ffill()
 
 daily, intraday = get_data()
 
+# Ensure all columns exist
+for name in all_tickers.keys():
+    if name not in daily.columns:
+        daily[name] = None
+    if name not in intraday.columns:
+        intraday[name] = None
+
 # ================================
-# Table: Latest Prices & % Change
+# Latest prices table
 # ================================
 today = datetime.datetime.utcnow().date()
 latest_prices = intraday.iloc[-1].combine_first(daily.iloc[-1])
@@ -63,19 +70,28 @@ st.subheader("📈 Latest Prices and Daily Change")
 st.dataframe(prices)
 
 # ================================
-# Equity Chart (Base 100)
+# Equity Chart (FTSE, S&P 500, NASDAQ)
 # ================================
-equity_chart_data = daily[list(equity_tickers.keys())].ffill()
-normalized = (equity_chart_data / equity_chart_data.iloc[0]) * 100
+equity_data = daily[list(equity_tickers.keys())].ffill()
+normalized = (equity_data / equity_data.iloc[0]) * 100
 
-# Dynamic Y axis: min 80, max = highest + 20
-y_lower = 80
-y_upper = int(normalized.max().max() + 20)
-
-# Melt for Altair
+# Reset index and ensure "Date" exists
 normalized_reset = normalized.reset_index()
 normalized_reset.rename(columns={normalized_reset.columns[0]: "Date"}, inplace=True)
-normalized_reset = pd.melt(normalized_reset, id_vars=["Date"], var_name="Asset", value_name="Value")
+
+if "Date" not in normalized_reset.columns:
+    st.error("Date column missing in normalized equity data.")
+else:
+    normalized_reset = pd.melt(
+        normalized_reset,
+        id_vars=["Date"],
+        var_name="Asset",
+        value_name="Value"
+    )
+
+# Y-axis: zoom 80 to max+20
+y_lower = 80
+y_upper = int(normalized_reset["Value"].max().max() + 20)
 
 st.subheader("📊 Equity Indices (6 months, normalized to 100)")
 equity_chart = alt.Chart(normalized_reset).mark_line().encode(
@@ -92,14 +108,23 @@ equity_chart = alt.Chart(normalized_reset).mark_line().encode(
 st.altair_chart(equity_chart, use_container_width=True)
 
 # ================================
-# FX Charts
+# FX Chart
 # ================================
-fx_chart_data = daily[list(fx_tickers.keys())].ffill()
-fx_normalized = (fx_chart_data / fx_chart_data.iloc[0]) * 100
+fx_data = daily[list(fx_tickers.keys())].ffill()
+fx_normalized = (fx_data / fx_data.iloc[0]) * 100
 
 fx_reset = fx_normalized.reset_index()
 fx_reset.rename(columns={fx_reset.columns[0]: "Date"}, inplace=True)
-fx_reset = pd.melt(fx_reset, id_vars=["Date"], var_name="Asset", value_name="Value")
+
+if "Date" not in fx_reset.columns:
+    st.error("Date column missing in FX data.")
+else:
+    fx_reset = pd.melt(
+        fx_reset,
+        id_vars=["Date"],
+        var_name="Asset",
+        value_name="Value"
+    )
 
 st.subheader("💱 Currencies (6 months, normalized to 100)")
 fx_chart = alt.Chart(fx_reset).mark_line().encode(
@@ -122,3 +147,4 @@ utc_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 london_time = datetime.datetime.now(pytz.timezone("Europe/London")).strftime('%Y-%m-%d %H:%M:%S')
 
 st.caption(f"Data last updated: {utc_time} (UTC) | {london_time} (London time)")
+
