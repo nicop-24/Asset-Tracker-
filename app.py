@@ -32,7 +32,7 @@ def fetch_data():
         progress=False,
     )["Close"]
     data = data.rename(columns={v: k for k, v in tickers.items()})
-    data = data.dropna(how="all")
+    data = data.fillna(method="ffill")
     return data
 
 daily = fetch_data()
