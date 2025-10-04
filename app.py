@@ -19,34 +19,44 @@ tickers = {
 st.title("📊 Asset Tracker Dashboard")
 
 # ================================
-# Part 1: Latest Prices (today vs yesterday)
+# Helper: download and merge safely
 # ================================
-# Download last 6 months of daily data
-daily = yf.download(
-    list(tickers.values()),
-    period="6mo",
-    interval="1d"
-)["Close"]
+@st.cache_data(ttl=3600)
+def get_data():
+    all_data = pd.DataFrame()
+    for name, symbol in tickers.items():
+        try:
+            df = yf.download(symbol, period="6mo", interval="1d")[["Close"]]
+            df.rename(columns={"Close": name}, inplace=True)
+            all_data = pd.concat([all_data, df], axis=1)
+        except Exception as e:
+            st.warning(f"⚠️ Could not download data for {name}: {e}")
+    return all_data.ffill()
 
-# Rename columns
-daily = daily.rename(columns={v: k for k, v in tickers.items()})
+daily = get_data()
 
-# Forward-fill any missing values so all assets appear
-daily = daily.ffill()
+# ================================
+# Ensure all tickers exist
+# ================================
+for name in tickers.keys():
+    if name not in daily.columns:
+        daily[name] = None
 
-# Identify today's date
+# ================================
+# Handle latest prices
+# ================================
 today = datetime.date.today()
 
-# Handle incomplete sessions
-latest_daily = daily.iloc[-1]
-yesterday_daily = daily.iloc[-2]
-
+# Remove incomplete today if it exists
 if today in daily.index:
-    # If today’s partial data is in the index, use yesterday instead
     latest_daily = daily.iloc[-2]
     yesterday_daily = daily.iloc[-3]
+    daily_chart = daily.iloc[:-1]
+else:
+    latest_daily = daily.iloc[-1]
+    yesterday_daily = daily.iloc[-2]
+    daily_chart = daily
 
-# Build comparison table
 prices = pd.DataFrame({
     "Latest Price": latest_daily,
     "Prev Close": yesterday_daily
@@ -57,29 +67,15 @@ st.subheader("📈 Latest Prices and Daily Change")
 st.dataframe(prices)
 
 # ================================
-# Part 2: Charts (Normalized, Always Show All)
+# Normalize to 100 base
 # ================================
-# Exclude incomplete last day if necessary
-if today in daily.index:
-    daily_chart = daily.iloc[:-1]
-else:
-    daily_chart = daily
-
-# Forward-fill again for safety
-daily_chart = daily_chart.ffill()
-
-# Normalize all series to start at 100
 normalized = (daily_chart / daily_chart.iloc[0]) * 100
-
-# Ensure all tickers exist
-for name in tickers.keys():
-    if name not in normalized.columns:
-        normalized[name] = None
+normalized = normalized.ffill()
 
 # Melt for Altair
 normalized_reset = normalized.reset_index().melt("Date", var_name="Asset", value_name="Value")
 
-# Dynamic Y-axis zoom
+# Dynamic Y-axis scaling
 y_max = normalized_reset["Value"].max()
 y_upper = int(((y_max // 10) + 1) * 10)
 
