@@ -19,7 +19,7 @@ tickers = {
 st.title("📊 Asset Tracker Dashboard")
 
 # ================================
-# Helper: download and merge safely
+# Helper function: download data safely
 # ================================
 @st.cache_data(ttl=3600)
 def get_data():
@@ -36,7 +36,7 @@ def get_data():
 daily = get_data()
 
 # ================================
-# Ensure all tickers exist
+# Ensure all tickers are present
 # ================================
 for name in tickers.keys():
     if name not in daily.columns:
@@ -47,7 +47,7 @@ for name in tickers.keys():
 # ================================
 today = datetime.date.today()
 
-# If today's row is incomplete (markets not closed), skip it
+# If today's data is incomplete, use yesterday
 if today in daily.index:
     latest_daily = daily.iloc[-2]
     yesterday_daily = daily.iloc[-3]
@@ -77,15 +77,22 @@ st.dataframe(prices)
 normalized = (daily_chart / daily_chart.iloc[0]) * 100
 normalized = normalized.ffill()
 
-# Reset index & ensure correct date column
+# Ensure index is named and reset properly
+normalized.index.name = "Date"
 normalized_reset = normalized.reset_index()
-normalized_reset.columns = ["Date"] + list(normalized.columns[1:]) if "Date" not in normalized_reset.columns else normalized_reset.columns
-normalized_reset = normalized_reset.melt(id_vars=["Date"], var_name="Asset", value_name="Value")
+
+# Melt into long format safely
+normalized_reset = pd.melt(
+    normalized_reset,
+    id_vars=["Date"],
+    var_name="Asset",
+    value_name="Value"
+)
 
 # Dynamic y-axis scaling
 y_max = normalized_reset["Value"].max()
 y_upper = int(((y_max // 10) + 1) * 10)
-y_lower = 80  # zoomed view
+y_lower = 80  # zoom in base
 
 # ================================
 # Equity Chart
@@ -136,3 +143,4 @@ utc_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 london_time = datetime.datetime.now(pytz.timezone("Europe/London")).strftime('%Y-%m-%d %H:%M:%S')
 
 st.caption(f"Data last updated: {utc_time} (UTC) | {london_time} (London time)")
+
