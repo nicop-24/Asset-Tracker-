@@ -19,7 +19,7 @@ tickers = {
 st.title("📊 Asset Tracker Dashboard")
 
 # ================================
-# Helper function: download data safely
+# Helper function: download safely
 # ================================
 @st.cache_data(ttl=3600)
 def get_data():
@@ -36,7 +36,7 @@ def get_data():
 daily = get_data()
 
 # ================================
-# Ensure all tickers are present
+# Ensure all tickers appear
 # ================================
 for name in tickers.keys():
     if name not in daily.columns:
@@ -47,7 +47,7 @@ for name in tickers.keys():
 # ================================
 today = datetime.date.today()
 
-# If today's data is incomplete, use yesterday
+# If today’s data incomplete, use yesterday
 if today in daily.index:
     latest_daily = daily.iloc[-2]
     yesterday_daily = daily.iloc[-3]
@@ -58,7 +58,7 @@ else:
     daily_chart = daily
 
 # ================================
-# Price Table
+# Prices table
 # ================================
 prices = pd.DataFrame({
     "Latest Price": latest_daily,
@@ -77,11 +77,12 @@ st.dataframe(prices)
 normalized = (daily_chart / daily_chart.iloc[0]) * 100
 normalized = normalized.ffill()
 
-# Ensure index is named and reset properly
-normalized.index.name = "Date"
+# Ensure we have a Date column no matter what
 normalized_reset = normalized.reset_index()
+if "Date" not in normalized_reset.columns:
+    normalized_reset.rename(columns={normalized_reset.columns[0]: "Date"}, inplace=True)
 
-# Melt into long format safely
+# Melt safely
 normalized_reset = pd.melt(
     normalized_reset,
     id_vars=["Date"],
@@ -89,13 +90,13 @@ normalized_reset = pd.melt(
     value_name="Value"
 )
 
-# Dynamic y-axis scaling
+# Dynamic y-axis range
 y_max = normalized_reset["Value"].max()
 y_upper = int(((y_max // 10) + 1) * 10)
-y_lower = 80  # zoom in base
+y_lower = 80
 
 # ================================
-# Equity Chart
+# Charts
 # ================================
 st.subheader("📊 Equity Indices (6 months, normalized to 100)")
 equity_assets = ["FTSE 100", "S&P 500", "NASDAQ"]
@@ -115,9 +116,6 @@ equity_chart = alt.Chart(
 
 st.altair_chart(equity_chart, use_container_width=True)
 
-# ================================
-# FX Chart
-# ================================
 st.subheader("💱 Currencies (6 months, normalized to 100)")
 fx_assets = ["EUR/USD", "GBP/USD"]
 
@@ -141,6 +139,4 @@ st.altair_chart(fx_chart, use_container_width=True)
 # ================================
 utc_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 london_time = datetime.datetime.now(pytz.timezone("Europe/London")).strftime('%Y-%m-%d %H:%M:%S')
-
 st.caption(f"Data last updated: {utc_time} (UTC) | {london_time} (London time)")
-
