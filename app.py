@@ -5,64 +5,44 @@ import datetime
 import pytz
 import altair as alt
 
-st.title("📊 Asset Tracker Dashboard")
-
-# ================================
-# Tickers
-# ================================
-equity_tickers = {
+# Assets to track
+tickers = {
     "FTSE 100": "^FTSE",
     "S&P 500": "^GSPC",
-    "NASDAQ": "^IXIC"
-}
-
-fx_tickers = {
+    "NASDAQ": "^IXIC",
     "EUR/USD": "EURUSD=X",
     "GBP/USD": "GBPUSD=X"
 }
 
-all_tickers = {**equity_tickers, **fx_tickers}
+st.title("📊 Asset Tracker Dashboard")
 
 # ================================
-# Download data
+# Part 1: Latest Prices (today vs yesterday)
 # ================================
-@st.cache_data(ttl=900)  # cache 15 minutes
-def get_data():
-    daily_data = pd.DataFrame()
-    intraday_data = pd.DataFrame()
-    for name, symbol in all_tickers.items():
-        try:
-            # Daily 6mo
-            df_daily = yf.download(symbol, period="6mo", interval="1d")[["Close"]].rename(columns={"Close": name})
-            daily_data = pd.concat([daily_data, df_daily], axis=1)
+# Get daily closes (6 months, for yesterday and today if available)
+daily = yf.download(
+    list(tickers.values()),
+    period="6mo",
+    interval="1d"
+)["Close"]
 
-            # Intraday 7d, 15min
-            df_intraday = yf.download(symbol, period="7d", interval="15m")[["Close"]].rename(columns={"Close": name})
-            intraday_data = pd.concat([intraday_data, df_intraday], axis=1)
-        except Exception as e:
-            st.warning(f"⚠️ Could not download {name}: {e}")
+daily = daily.rename(columns={v: k for k, v in tickers.items()})
 
-    # Ensure all columns exist
-    for name in all_tickers.keys():
-        if name not in daily_data.columns:
-            daily_data[name] = pd.NA
-        if name not in intraday_data.columns:
-            intraday_data[name] = pd.NA
+# Latest close we have (today or yesterday if today not yet reported)
+latest_daily = daily.iloc[-1]
+yesterday_daily = daily.iloc[-2]
 
-    return daily_data.ffill(), intraday_data.ffill()
+# If today's date is in the index but it's incomplete (trading ongoing),
+# then use yesterday's close as "last available"
+today = datetime.date.today()
+if today in daily.index:
+    latest_daily = daily.iloc[-2]  # keep yesterday's value until full day is available
+    yesterday_daily = daily.iloc[-3]
 
-daily, intraday = get_data()
-
-# ================================
-# Latest prices table
-# ================================
-today = datetime.datetime.utcnow().date()
-latest_prices = intraday.iloc[-1].combine_first(daily.iloc[-1])
-prev_prices = daily.iloc[-2]
-
+# Build table of current vs yesterday
 prices = pd.DataFrame({
-    "Latest Price": latest_prices,
-    "Prev Close": prev_prices
+    "Latest Price": latest_daily,
+    "Prev Close": yesterday_daily
 })
 prices["% Change vs Prev Close"] = ((prices["Latest Price"] - prices["Prev Close"]) / prices["Prev Close"] * 100).round(2)
 
@@ -70,111 +50,57 @@ st.subheader("📈 Latest Prices and Daily Change")
 st.dataframe(prices)
 
 # ================================
-# Equity Chart (FTSE, S&P 500, NASDAQ)
+# Part 2: Charts (Normalized to 100, zoomed axis)
 # ================================
-equity_data = daily[list(equity_tickers.keys())].copy()
-equity_data = equity_data.ffill()
-
-# Normalize to base 100
-normalized = (equity_data / equity_data.iloc[0]) * 100
-
-# Reset index and ensure "Date" exists
-normalized_reset = normalized.reset_index()
-normalized_reset.rename(columns={normalized_reset.columns[0]: "Date"}, inplace=True)
-
-# Melt safely
-if "Date" in normalized_reset.columns:
-    normalized_reset = pd.melt(
-        normalized_reset,
-        id_vars=["Date"],
-        var_name="Asset",
-        value_name="Value"
-    )
+# Only chart up to yesterday's close
+if today in daily.index:
+    daily_chart = daily.iloc[:-1]
 else:
-    st.error("Date column missing in normalized equity data.")
-    normalized_reset = pd.DataFrame(columns=["Date", "Asset", "Value"])
+    daily_chart = daily
 
-# Compute % change since start for labels
-start_values = normalized.iloc[0]
-latest_values = normalized.iloc[-1]
-percent_change_labels = {asset: ((latest_values[asset] - start_values[asset])/start_values[asset]*100).round(2)
-                         for asset in equity_tickers.keys()}
+# Normalize all series to start at 100
+normalized = (daily_chart / daily_chart.iloc[0]) * 100
 
-# Y-axis: zoom 80 to max+20
-y_lower = 80
-y_upper = int(normalized_reset["Value"].max().max() + 20) if not normalized_reset.empty else 150
+# Melt dataframe for Altair
+normalized_reset = normalized.reset_index().melt("Date", var_name="Asset", value_name="Value")
 
+# Find max value to adjust upper bound dynamically
+y_max = normalized_reset["Value"].max()
+y_upper = int(((y_max // 10) + 1) * 10)  # round up to nearest 10
+
+# Equity chart
 st.subheader("📊 Equity Indices (6 months, normalized to 100)")
-equity_chart = alt.Chart(normalized_reset).mark_line().encode(
+
+equity_chart = alt.Chart(
+    normalized_reset[normalized_reset["Asset"].isin(["FTSE 100", "S&P 500", "NASDAQ"])]
+).mark_line().encode(
     x="Date:T",
-    y=alt.Y("Value:Q", scale=alt.Scale(domain=[y_lower, y_upper])),
+    y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, y_upper])),
     color="Asset:N",
-    tooltip=[
-        "Date:T",
-        "Asset:N",
-        alt.Tooltip("Value:Q", title="Rebased Value", format=".2f")
-    ]
+    tooltip=["Date:T", "Asset:N", "Value:Q"]
 ).properties(width=700, height=400)
 
-# Add labels for latest % change since start
-labels_data = pd.DataFrame({
-    "Asset": list(percent_change_labels.keys()),
-    "Value": [latest_values[a] for a in percent_change_labels.keys()],
-    "Label": [f"{v:+.2f}%" for v in percent_change_labels.values()]
-})
-label_chart = alt.Chart(labels_data).mark_text(
-    align='left',
-    dx=5,
-    dy=-5,
-    fontWeight='bold'
-).encode(
-    x=alt.value(normalized_reset["Date"].max()),  # place at the far right
-    y="Value:Q",
-    text="Label:N",
-    color="Asset:N"
-)
+st.altair_chart(equity_chart, use_container_width=True)
 
-st.altair_chart(equity_chart + label_chart, use_container_width=True)
-
-# ================================
-# FX Chart
-# ================================
-fx_data = daily[list(fx_tickers.keys())].copy()
-fx_data = fx_data.ffill()
-
-fx_normalized = (fx_data / fx_data.iloc[0]) * 100
-fx_reset = fx_normalized.reset_index()
-fx_reset.rename(columns={fx_reset.columns[0]: "Date"}, inplace=True)
-
-if "Date" in fx_reset.columns:
-    fx_reset = pd.melt(
-        fx_reset,
-        id_vars=["Date"],
-        var_name="Asset",
-        value_name="Value"
-    )
-else:
-    st.error("Date column missing in FX data.")
-    fx_reset = pd.DataFrame(columns=["Date", "Asset", "Value"])
-
+# FX chart
 st.subheader("💱 Currencies (6 months, normalized to 100)")
-fx_chart = alt.Chart(fx_reset).mark_line().encode(
+
+fx_chart = alt.Chart(
+    normalized_reset[normalized_reset["Asset"].isin(["EUR/USD", "GBP/USD"])]
+).mark_line().encode(
     x="Date:T",
-    y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, int(fx_reset["Value"].max().max()+20) if not fx_reset.empty else 120])),
+    y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, y_upper])),
     color="Asset:N",
-    tooltip=[
-        "Date:T",
-        "Asset:N",
-        alt.Tooltip("Value:Q", title="Rebased Value", format=".2f")
-    ]
+    tooltip=["Date:T", "Asset:N", "Value:Q"]
 ).properties(width=700, height=400)
 
 st.altair_chart(fx_chart, use_container_width=True)
 
 # ================================
-# Footer: UTC + London time
+# Footer with UTC + London time
 # ================================
 utc_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 london_time = datetime.datetime.now(pytz.timezone("Europe/London")).strftime('%Y-%m-%d %H:%M:%S')
 
 st.caption(f"Data last updated: {utc_time} (UTC) | {london_time} (London time)")
+
