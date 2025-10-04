@@ -47,7 +47,7 @@ for name in tickers.keys():
 # ================================
 today = datetime.date.today()
 
-# Remove incomplete today if it exists
+# If today's row is incomplete (markets not closed), skip it
 if today in daily.index:
     latest_daily = daily.iloc[-2]
     yesterday_daily = daily.iloc[-3]
@@ -57,27 +57,35 @@ else:
     yesterday_daily = daily.iloc[-2]
     daily_chart = daily
 
+# ================================
+# Price Table
+# ================================
 prices = pd.DataFrame({
     "Latest Price": latest_daily,
     "Prev Close": yesterday_daily
 })
-prices["% Change vs Prev Close"] = ((prices["Latest Price"] - prices["Prev Close"]) / prices["Prev Close"] * 100).round(2)
+prices["% Change vs Prev Close"] = (
+    (prices["Latest Price"] - prices["Prev Close"]) / prices["Prev Close"] * 100
+).round(2)
 
 st.subheader("📈 Latest Prices and Daily Change")
 st.dataframe(prices)
 
 # ================================
-# Normalize to 100 base
+# Normalize to base = 100
 # ================================
 normalized = (daily_chart / daily_chart.iloc[0]) * 100
 normalized = normalized.ffill()
 
-# Melt for Altair
-normalized_reset = normalized.reset_index().melt("Date", var_name="Asset", value_name="Value")
+# Reset index & ensure correct date column
+normalized_reset = normalized.reset_index()
+normalized_reset.columns = ["Date"] + list(normalized.columns[1:]) if "Date" not in normalized_reset.columns else normalized_reset.columns
+normalized_reset = normalized_reset.melt(id_vars=["Date"], var_name="Asset", value_name="Value")
 
-# Dynamic Y-axis scaling
+# Dynamic y-axis scaling
 y_max = normalized_reset["Value"].max()
 y_upper = int(((y_max // 10) + 1) * 10)
+y_lower = 80  # zoomed view
 
 # ================================
 # Equity Chart
@@ -89,7 +97,7 @@ equity_chart = alt.Chart(
     normalized_reset[normalized_reset["Asset"].isin(equity_assets)]
 ).mark_line().encode(
     x="Date:T",
-    y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, y_upper])),
+    y=alt.Y("Value:Q", scale=alt.Scale(domain=[y_lower, y_upper])),
     color="Asset:N",
     tooltip=[
         "Date:T",
@@ -110,7 +118,7 @@ fx_chart = alt.Chart(
     normalized_reset[normalized_reset["Asset"].isin(fx_assets)]
 ).mark_line().encode(
     x="Date:T",
-    y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, y_upper])),
+    y=alt.Y("Value:Q", scale=alt.Scale(domain=[y_lower, y_upper])),
     color="Asset:N",
     tooltip=[
         "Date:T",
