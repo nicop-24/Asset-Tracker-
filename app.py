@@ -37,7 +37,7 @@ def fetch_data():
 
 daily = fetch_data()
 
-# Ensure we only use fully available (last complete) trading day
+# Ensure we only use the last complete trading day
 latest_date = daily.dropna().index.max()
 latest_data = daily.loc[latest_date]
 # previous available trading day
@@ -67,6 +67,11 @@ chart_data = daily.loc[:latest_date]
 normalized = (chart_data / chart_data.iloc[0]) * 100
 normalized = normalized.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Value")
 
+# Compute dynamic y-axis
+y_min = 80
+y_max = normalized["Value"].max()
+y_upper = y_max + 20  # headroom above the highest value
+
 # ============================================================
 # EQUITY CHART
 # ============================================================
@@ -78,7 +83,7 @@ eq_chart = (
     .mark_line()
     .encode(
         x="Date:T",
-        y=alt.Y("Value:Q", title="Normalized (Base 100)"),
+        y=alt.Y("Value:Q", title="Normalized (Base 100)", scale=alt.Scale(domain=[y_min, y_upper])),
         color="Asset:N",
         tooltip=["Date:T", "Asset:N", "Value:Q"]
     )
@@ -97,7 +102,7 @@ fx_chart = (
     .mark_line()
     .encode(
         x="Date:T",
-        y=alt.Y("Value:Q", title="Normalized (Base 100)"),
+        y=alt.Y("Value:Q", title="Normalized (Base 100)", scale=alt.Scale(domain=[y_min, y_upper])),
         color="Asset:N",
         tooltip=["Date:T", "Asset:N", "Value:Q"]
     )
