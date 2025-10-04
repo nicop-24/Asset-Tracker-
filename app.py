@@ -5,105 +5,80 @@ import datetime
 import pytz
 import altair as alt
 
+st.title("📊 Asset Tracker Dashboard")
+
 # ================================
-# Assets to track
+# Assets
 # ================================
-tickers = {
+equity_tickers = {
     "FTSE 100": "^FTSE",
     "S&P 500": "^GSPC",
-    "NASDAQ": "^IXIC",
+    "NASDAQ": "^IXIC"
+}
+
+fx_tickers = {
     "EUR/USD": "EURUSD=X",
     "GBP/USD": "GBPUSD=X"
 }
 
-st.title("📊 Asset Tracker Dashboard")
+all_tickers = {**equity_tickers, **fx_tickers}
 
 # ================================
-# Helper function: download safely
+# Download 6 months of daily + intraday
 # ================================
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=900)  # cache 15 minutes
 def get_data():
-    all_data = pd.DataFrame()
-    for name, symbol in tickers.items():
+    data_daily = pd.DataFrame()
+    data_intraday = pd.DataFrame()
+    for name, symbol in all_tickers.items():
         try:
-            df = yf.download(symbol, period="6mo", interval="1d")[["Close"]]
-            df.rename(columns={"Close": name}, inplace=True)
-            all_data = pd.concat([all_data, df], axis=1)
+            # Daily closes for chart & table
+            df_daily = yf.download(symbol, period="6mo", interval="1d")[["Close"]].rename(columns={"Close": name})
+            data_daily = pd.concat([data_daily, df_daily], axis=1)
+
+            # Intraday 15m for latest values
+            df_intraday = yf.download(symbol, period="7d", interval="15m")[["Close"]].rename(columns={"Close": name})
+            data_intraday = pd.concat([data_intraday, df_intraday], axis=1)
         except Exception as e:
-            st.warning(f"⚠️ Could not download data for {name}: {e}")
-    return all_data.ffill()
+            st.warning(f"⚠️ Could not download {name}: {e}")
 
-daily = get_data()
+    return data_daily.ffill(), data_intraday.ffill()
 
-# ================================
-# Ensure all tickers appear
-# ================================
-for name in tickers.keys():
-    if name not in daily.columns:
-        daily[name] = None
+daily, intraday = get_data()
 
 # ================================
-# Handle latest prices
+# Table: Latest Prices & % Change
 # ================================
-today = datetime.date.today()
+today = datetime.datetime.utcnow().date()
+latest_prices = intraday.iloc[-1].combine_first(daily.iloc[-1])
+prev_prices = daily.iloc[-2]
 
-# If today’s data incomplete, use yesterday
-if today in daily.index:
-    latest_daily = daily.iloc[-2]
-    yesterday_daily = daily.iloc[-3]
-    daily_chart = daily.iloc[:-1]
-else:
-    latest_daily = daily.iloc[-1]
-    yesterday_daily = daily.iloc[-2]
-    daily_chart = daily
-
-# ================================
-# Prices table
-# ================================
 prices = pd.DataFrame({
-    "Latest Price": latest_daily,
-    "Prev Close": yesterday_daily
+    "Latest Price": latest_prices,
+    "Prev Close": prev_prices
 })
-prices["% Change vs Prev Close"] = (
-    (prices["Latest Price"] - prices["Prev Close"]) / prices["Prev Close"] * 100
-).round(2)
+prices["% Change vs Prev Close"] = ((prices["Latest Price"] - prices["Prev Close"]) / prices["Prev Close"] * 100).round(2)
 
 st.subheader("📈 Latest Prices and Daily Change")
 st.dataframe(prices)
 
 # ================================
-# Normalize to base = 100
+# Equity Chart (Base 100)
 # ================================
-normalized = (daily_chart / daily_chart.iloc[0]) * 100
-normalized = normalized.ffill()
+equity_chart_data = daily[list(equity_tickers.keys())].ffill()
+normalized = (equity_chart_data / equity_chart_data.iloc[0]) * 100
 
-# Ensure we have a Date column no matter what
-normalized_reset = normalized.reset_index()
-if "Date" not in normalized_reset.columns:
-    normalized_reset.rename(columns={normalized_reset.columns[0]: "Date"}, inplace=True)
-
-# Melt safely
-normalized_reset = pd.melt(
-    normalized_reset,
-    id_vars=["Date"],
-    var_name="Asset",
-    value_name="Value"
-)
-
-# Dynamic y-axis range
-y_max = normalized_reset["Value"].max()
-y_upper = int(((y_max // 10) + 1) * 10)
+# Dynamic Y axis: min 80, max = highest + 20
 y_lower = 80
+y_upper = int(normalized.max().max() + 20)
 
-# ================================
-# Charts
-# ================================
+# Melt for Altair
+normalized_reset = normalized.reset_index()
+normalized_reset.rename(columns={normalized_reset.columns[0]: "Date"}, inplace=True)
+normalized_reset = pd.melt(normalized_reset, id_vars=["Date"], var_name="Asset", value_name="Value")
+
 st.subheader("📊 Equity Indices (6 months, normalized to 100)")
-equity_assets = ["FTSE 100", "S&P 500", "NASDAQ"]
-
-equity_chart = alt.Chart(
-    normalized_reset[normalized_reset["Asset"].isin(equity_assets)]
-).mark_line().encode(
+equity_chart = alt.Chart(normalized_reset).mark_line().encode(
     x="Date:T",
     y=alt.Y("Value:Q", scale=alt.Scale(domain=[y_lower, y_upper])),
     color="Asset:N",
@@ -116,14 +91,20 @@ equity_chart = alt.Chart(
 
 st.altair_chart(equity_chart, use_container_width=True)
 
-st.subheader("💱 Currencies (6 months, normalized to 100)")
-fx_assets = ["EUR/USD", "GBP/USD"]
+# ================================
+# FX Charts
+# ================================
+fx_chart_data = daily[list(fx_tickers.keys())].ffill()
+fx_normalized = (fx_chart_data / fx_chart_data.iloc[0]) * 100
 
-fx_chart = alt.Chart(
-    normalized_reset[normalized_reset["Asset"].isin(fx_assets)]
-).mark_line().encode(
+fx_reset = fx_normalized.reset_index()
+fx_reset.rename(columns={fx_reset.columns[0]: "Date"}, inplace=True)
+fx_reset = pd.melt(fx_reset, id_vars=["Date"], var_name="Asset", value_name="Value")
+
+st.subheader("💱 Currencies (6 months, normalized to 100)")
+fx_chart = alt.Chart(fx_reset).mark_line().encode(
     x="Date:T",
-    y=alt.Y("Value:Q", scale=alt.Scale(domain=[y_lower, y_upper])),
+    y=alt.Y("Value:Q", scale=alt.Scale(domain=[80, int(fx_reset["Value"].max().max()+20)])),
     color="Asset:N",
     tooltip=[
         "Date:T",
@@ -135,8 +116,9 @@ fx_chart = alt.Chart(
 st.altair_chart(fx_chart, use_container_width=True)
 
 # ================================
-# Footer with UTC + London time
+# Footer: UTC + London time
 # ================================
 utc_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 london_time = datetime.datetime.now(pytz.timezone("Europe/London")).strftime('%Y-%m-%d %H:%M:%S')
+
 st.caption(f"Data last updated: {utc_time} (UTC) | {london_time} (London time)")
