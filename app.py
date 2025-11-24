@@ -63,7 +63,6 @@ for name, ticker in tickers.items():
     else:
         clean_data[name] = ticker_data
 
-# Drop missing data
 clean_data.dropna(inplace=True)
 
 # -----------------------------
@@ -81,12 +80,11 @@ previous = clean_data.iloc[-2]
 change = latest - previous
 change_pct = (change / previous) * 100
 
-# Build a DataFrame for display
 display_df = pd.DataFrame({
     "Latest Price": latest,
     "Change": change,
     "Change %": change_pct
-}).T
+})
 
 st.dataframe(display_df.style.format("{:.4f}").background_gradient(cmap='RdYlGn', subset=["Change", "Change %"]))
 
