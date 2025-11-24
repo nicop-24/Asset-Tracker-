@@ -1,17 +1,34 @@
 import streamlit as st
-import pandas as pd
 import yfinance as yf
-import datetime
-import pytz
-import altair as alt
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.linear_model import LinearRegression
+from datetime import datetime
 
-# ============================================================
-# SETTINGS
-# ============================================================
-st.set_page_config(page_title="Asset Tracker Dashboard", layout="wide")
-st.title("📊 Asset Tracker Dashboard")
+st.set_page_config(page_title="Asset Tracker + Forecast", layout="wide")
+st.title("📊 Asset Tracker + 7-Day Forecast")
 
-# Main tickers
+# -----------------------------
+# Forecasting Function (Linear Trend)
+# -----------------------------
+def forecast_linear(series: pd.Series, periods=7):
+    """Linear regression forecast for next `periods` days"""
+    X = np.arange(len(series)).reshape(-1, 1)
+    y = series.values
+
+    model = LinearRegression()
+    model.fit(X, y)
+
+    future_x = np.arange(len(series), len(series) + periods).reshape(-1, 1)
+    preds = model.predict(future_x)
+
+    future_index = pd.date_range(start=series.index[-1], periods=periods + 1, freq="D")[1:]
+    return pd.Series(preds, index=future_index)
+
+# -----------------------------
+# Define tickers
+# -----------------------------
 tickers = {
     "FTSE 100": "^FTSE",
     "S&P 500": "^GSPC",
@@ -20,129 +37,99 @@ tickers = {
     "GBP/USD": "GBPUSD=X"
 }
 
-# Fallback ETF proxies for US indices
-fallbacks = {
-    "S&P 500": "SPY",
-    "NASDAQ": "QQQ"
-}
+# -----------------------------
+# Download last 6 months of data
+# -----------------------------
+data = yf.download(
+    list(tickers.values()), 
+    period="6mo", 
+    interval="1d", 
+    group_by='ticker', 
+    auto_adjust=True
+)
 
-# ============================================================
-# FETCH DATA
-# ============================================================
-@st.cache_data(ttl=900)  # cache for 15 minutes
-def fetch_data():
-    all_data = pd.DataFrame()
+# -----------------------------
+# Prepare clean DataFrame
+# -----------------------------
+clean_data = pd.DataFrame()
+for name, ticker in tickers.items():
+    ticker_data = data[ticker]
 
-    for name, ticker in tickers.items():
-        data = yf.download(
-            ticker,
-            period="6mo",
-            interval="1d",
-            auto_adjust=True,
-            progress=False
-        )["Close"]
-
-        # If no data for index, try ETF fallback (for weekends/holidays)
-        if data.empty and name in fallbacks:
-            fallback_ticker = fallbacks[name]
-            st.warning(f"No data for {name} ({ticker}). Using fallback: {fallback_ticker}")
-            data = yf.download(
-                fallback_ticker,
-                period="6mo",
-                interval="1d",
-                auto_adjust=True,
-                progress=False
-            )["Close"]
-
-        if not data.empty:
-            all_data[name] = data
+    if isinstance(ticker_data, pd.DataFrame):
+        if 'Close' in ticker_data.columns:
+            clean_data[name] = ticker_data['Close']
         else:
-            st.warning(f"⚠️ No data available for {name}")
+            clean_data[name] = ticker_data.iloc[:, 0]
+    else:
+        clean_data[name] = ticker_data
 
-    # Fill forward so charts always display even on weekends
-    all_data = all_data.fillna(method="ffill")
-    return all_data
+# Drop missing data
+clean_data.dropna(inplace=True)
 
-daily = fetch_data()
+# -----------------------------
+# Normalize to 100 at start
+# -----------------------------
+normalized = clean_data / clean_data.iloc[0] * 100
 
-# ============================================================
-# PREPARE LATEST DATA
-# ============================================================
-latest_date = daily.dropna().index.max()
-latest_data = daily.loc[latest_date]
+# -----------------------------
+# Display Latest Prices + Daily Change
+# -----------------------------
+st.subheader("📈 Latest Prices & Daily Change")
 
-# previous available trading day
-prev_date = daily.loc[:latest_date].iloc[-2].name
-prev_data = daily.loc[prev_date]
+latest = clean_data.iloc[-1]
+previous = clean_data.iloc[-2]
+change = latest - previous
+change_pct = (change / previous) * 100
 
-# ============================================================
-# TABLE: Latest Prices and Daily Change
-# ============================================================
-prices = pd.DataFrame({
-    "Asset": daily.columns,
-    "Latest Price": [latest_data[a] for a in daily.columns],
-    "Prev Close": [prev_data[a] for a in daily.columns]
-})
-prices["% Change"] = ((prices["Latest Price"] - prices["Prev Close"]) / prices["Prev Close"] * 100).round(2)
+# Build a DataFrame for display
+display_df = pd.DataFrame({
+    "Latest Price": latest,
+    "Change": change,
+    "Change %": change_pct
+}).T
 
-st.subheader("📈 Latest Prices and Daily Change")
-st.dataframe(prices, hide_index=True, use_container_width=True)
+st.dataframe(display_df.style.format("{:.4f}").background_gradient(cmap='RdYlGn', subset=["Change", "Change %"]))
 
-# ============================================================
-# CHARTS
-# ============================================================
-# Normalize to base 100
-normalized = (daily / daily.iloc[0]) * 100
-normalized = normalized.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Value")
+# -----------------------------
+# Streamlit Controls
+# -----------------------------
+forecast_days = st.slider("Forecast Days (Equity Indices Only)", 1, 14, 7)
 
-# Dynamic y-axis zoom
-y_min = 80
-y_max = normalized["Value"].max()
-y_upper = y_max + 20
+# -----------------------------
+# Forecasting for equity indices
+# -----------------------------
+equity_indices = ["FTSE 100", "S&P 500", "NASDAQ"]
+forecast_dict = {}
+for asset in equity_indices:
+    forecast_dict[asset] = forecast_linear(normalized[asset], periods=forecast_days)
 
-# ============================================================
-# EQUITY CHART
-# ============================================================
-st.subheader("📊 Equity Indices (Base 100)")
+# -----------------------------
+# Plot Normalized Performance + Forecast
+# -----------------------------
+plt.figure(figsize=(12, 6))
 
-equities = ["FTSE 100", "S&P 500", "NASDAQ"]
-eq_chart = (
-    alt.Chart(normalized[normalized["Asset"].isin(equities)])
-    .mark_line()
-    .encode(
-        x="Date:T",
-        y=alt.Y("Value:Q", title="Normalized (Base 100)", scale=alt.Scale(domain=[y_min, y_upper])),
-        color="Asset:N",
-        tooltip=["Date:T", "Asset:N", "Value:Q"]
-    )
-    .properties(height=400)
-)
-st.altair_chart(eq_chart, use_container_width=True)
+# Colors for FX and Equity
+fx_colors = ["purple", "brown"]
+eq_colors = ["blue", "green", "orange"]
 
-# ============================================================
-# FX CHART
-# ============================================================
-st.subheader("💱 FX Rates (Base 100)")
+# Plot FX rates
+for i, asset in enumerate(["EUR/USD", "GBP/USD"]):
+    plt.plot(normalized.index, normalized[asset], label=asset, color=fx_colors[i], linewidth=2)
 
-fx_pairs = ["EUR/USD", "GBP/USD"]
-fx_chart = (
-    alt.Chart(normalized[normalized["Asset"].isin(fx_pairs)])
-    .mark_line()
-    .encode(
-        x="Date:T",
-        y=alt.Y("Value:Q", title="Normalized (Base 100)", scale=alt.Scale(domain=[y_min, y_upper])),
-        color="Asset:N",
-        tooltip=["Date:T", "Asset:N", "Value:Q"]
-    )
-    .properties(height=400)
-)
-st.altair_chart(fx_chart, use_container_width=True)
+# Plot Equity Indices + Forecast
+for i, asset in enumerate(equity_indices):
+    plt.plot(normalized.index, normalized[asset], label=f"{asset} History", color=eq_colors[i], linewidth=2)
+    plt.plot(forecast_dict[asset].index, forecast_dict[asset], linestyle="--", color=eq_colors[i], linewidth=2, label=f"{asset} Forecast")
 
-# ============================================================
-# TIMESTAMPS
-# ============================================================
-utc_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-london_time = datetime.datetime.now(pytz.timezone("Europe/London")).strftime('%Y-%m-%d %H:%M:%S')
+plt.title(f"Asset Tracker - Last 6 Months + {forecast_days}-Day Forecast for Equity Indices")
+plt.xlabel("Date")
+plt.ylabel("Normalized Value (100 = start)")
+plt.legend()
+plt.grid(True)
 
-st.caption(f"Data last updated: {utc_time} UTC | {london_time} London time")
-st.caption(f"Data as of: {latest_date.strftime('%Y-%m-%d')}")
+st.pyplot(plt)
+
+# -----------------------------
+# Show timestamp of last update
+# -----------------------------
+st.caption(f"Data last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
